@@ -244,6 +244,7 @@ def __lldb_init_module(debugger, internal_dict):
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.dd dd", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.dq dq", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.DumpInstructions u", res)
+    lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.lu lu", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.findmem findmem", res)
     #
     # Settings related commands
@@ -311,6 +312,7 @@ def __lldb_init_module(debugger, internal_dict):
     lldb.debugger.GetCommandInterpreter().HandleCommand("command alias break_entrypoint process launch --stop-at-entry", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.show_loadcmds show_loadcmds", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.stack stack", res)
+    lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.symtab symtab", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.show_header show_header", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.tester tester", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.datawin datawin", res)
@@ -389,6 +391,7 @@ def lldbinitcmds(debugger, command, result, dict):
     [ "db/dw/dd/dq", "memory hex dump in different formats" ],
     [ "findmem", "search memory" ],
     [ "cfa/cfc/cfd/cfi/cfo/cfp/cfs/cft/cfz", "change CPU flags" ],
+    [ "lu", "image lookup" ],
     [ "u", "dump instructions" ],
     [ "iphone", "connect to debugserver running on iPhone" ],
     [ "ctx/context", "show current instruction pointer CPU context" ],
@@ -3703,6 +3706,53 @@ def get_inst_size(target_addr):
 # Commands that use external utilities
 #
 
+def lu(debugger, command, result, dict):
+    '''Image Lookup <address> <image>'''
+    
+    help = """
+    Show image lookup output at specified address 
+
+    Syntax: lu <address> <image>
+
+    """
+    error = lldb.SBError()
+    cmd = command.split()
+    target = get_target()
+    res = lldb.SBCommandReturnObject()
+    
+    if len(cmd) == 1:
+        if cmd[0] == "help":
+            print help
+            return 
+
+    if len(cmd) == 2:
+       run_cmd = "image lookup --address "+cmd[0]+" "+cmd[1]
+       target.debugger.GetCommandInterpreter().HandleCommand(run_cmd,res)
+    else:
+       run_cmd = "image lookup --address "+cmd[0]
+       target.debugger.GetCommandInterpreter().HandleCommand(run_cmd,res)
+    
+    if res.Succeeded():
+        payload =  res.GetOutput().split()
+        
+        payload[0] = "\033[0;31m%s\033[0m: \033[1;34m%s\033[0m" % (payload[0][:len(payload[0])-1],cmd[0])
+        
+        index = payload[1].index("[")
+        
+        payload[1] = "\033[0;32m%s\033[0m\033[1;34m%s\033[0m\n" % (payload[1][:index],payload[1][index:])
+        
+        payload[2] = "\033[0;31mOffset\033[0m: (\033[0;32m%s\033[0m" %(payload[2][1:])
+    
+        payload[4] += "\n" 
+
+        payload[5] = "\033[0;31m%s\033[0m:" % (payload[5][:len(payload[5])-1])
+
+        payload =  " ".join(payload)
+        
+        print payload
+    else:
+        print res
+       
 def show_loadcmds(debugger, command, result, dict): 
     '''Show otool output of Mach-O load commands. Use \'show_loadcmds\' for more information.'''
     help = """
@@ -3754,14 +3804,18 @@ Note: expressions supported, do not use spaces between operators.
 
     return
 
+def symtab(debugger,command,result,dict):
+    '''lol'''
+    pass
+
 def stack(debugger,command,result,dict):
     '''Show data on the stack'''
 
     help = """
 
-Syntax: stack <number>
+    Syntax: stack <number>
 
-"""
+    """
 
    
     error = lldb.SBError()
@@ -4428,7 +4482,8 @@ def HandleHookStopOnTarget(debugger, command, result, dict):
         if is_i386() or is_arm():
             output("--------------------------------------------------------------------------------")
         elif is_x64():
-            output("----------------------------------------------------------------------------------------------------------------------")
+            output("-----------------------------------------------------------------------------------------------------------------------------------------")
+            #output("----------------------------------------------------------------------------------------------------------------------")
         color_bold()
         output("[stack]\n")
         color_reset()
@@ -4439,13 +4494,18 @@ def HandleHookStopOnTarget(debugger, command, result, dict):
     if is_i386() or is_arm():
         output("---------------------------------------------------------------------------------")
     elif is_x64():
-        output("-----------------------------------------------------------------------------------------------------------------------")
-   
+        output("---------------------------------------------------------------------------------")
+        #output("-----------------------------------------------------------------------------------------------------------------------")
+    
     color(COLOR_SEPARATOR)
     if get_pointer_size() == 4: #is_i386() or is_arm():
-        output("---------------------------------------------------------------------------------------")
+        output("---------------------------------------------------------------------------------")
+        #output("---------------------------------------------------------------------------------------")
     elif get_pointer_size() == 8: #is_x64():
-        output("-----------------------------------------------------------------------------------------------------------------------------")
+        output("---------------------------------------------------------------")
+        #output("---------------------------------------------------------------------------------------")
+        #output("-----------------------------------------------------------------------------------------------------------------------------")
+    
     color_reset()
 
     color_reset()
