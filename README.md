@@ -39,4 +39,6 @@ If you are lazy, just run `lldbinit.sh`
 ![stack](https://github.com/z3r0s/lldbinit/blob/master/img/stack_command.png)
 
 
+![stack](https://github.com/z3r0s/lldbinit/blob/master/img/lu_command.png)
+
 
