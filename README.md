@@ -2,9 +2,11 @@
 
 A gdbinit clone for LLDB aka how to make LLDB a bit more useful and less crappy
 
-(c) Deroko 2014, 2015, 2016
-(c) fG! 2017, 2018 - reverser@put.as - https://reverse.put.as
-(c) z3r0s 2018 - http://z3r0s.com
+(c) Deroko 2014, 2015, 2016 
+
+(c) fG! 2017, 2018 reverser@put.as : https://reverse.put.as
+
+(c) z3r0s 2018 : http://z3r0s.com
 
 - Original lldbinit by Deroko: (https://github.com/deroko/lldbinit)
 - Improved version by fG!: (https://github.com/gdbinit/lldbinit)
