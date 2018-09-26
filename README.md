@@ -33,4 +33,8 @@ If you are lazy, just run `lldbinit.sh`
 - For now, I have added *stack* command that displays the data on the stack...
 - More to come...
 
+## Screenshot
+![stack](https://github.com/z3r0s/lldbinit/blob/master/img/stack_command.png)
+
+
 
