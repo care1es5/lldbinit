@@ -110,6 +110,8 @@ CONFIG_DISPLAY_STACK_WINDOW = 1
 CONFIG_DISPLAY_FLOW_WINDOW = 1
 CONFIG_ENABLE_REGISTER_SHORTCUTS = 1
 CONFIG_DISPLAY_DATA_WINDOW = 0
+#must have
+CONFIG_VMMAP_ENABLE = 0
 
 # removes the offsets and modifies the module name position
 # reference: https://lldb.llvm.org/formats.html
@@ -130,6 +132,11 @@ COLOR_REGVAL_MODIFIED  = RED
 COLOR_SEPARATOR = BLUE
 COLOR_CPUFLAGS = RED
 COLOR_HIGHLIGHT_LINE = RED
+
+
+COLOR_STACK = BLUE
+COLOR_CODE = RED 
+COLOR_DATA =GREEN 
 
 #
 # Don't mess after here unless you know what you are doing!
@@ -197,6 +204,10 @@ GlobalListOutput = []
 
 Int3Dictionary = {}
 
+MemoryDump = {}
+
+SectionsDump = {}
+
 crack_cmds = []
 crack_cmds_noret = []
 
@@ -225,6 +236,7 @@ def __lldb_init_module(debugger, internal_dict):
     lldb.debugger.GetCommandInterpreter().HandleCommand("settings set prompt \"(lldb) \"", res)
     #lldb.debugger.GetCommandInterpreter().HandleCommand("settings set prompt \"\033[01;31m(lldb) \033[0m\"", res);
     lldb.debugger.GetCommandInterpreter().HandleCommand("settings set stop-disassembly-count 0", res)
+    lldb.debugger.GetCommandInterpreter().HandleCommand("settings set target.max-memory-read-size 8192" , res)
 
     if CONFIG_USE_CUSTOM_DISASSEMBLY_FORMAT == 1:
         lldb.debugger.GetCommandInterpreter().HandleCommand("settings set disassembly-format " + CUSTOM_DISASSEMBLY_FORMAT, res)
@@ -355,7 +367,7 @@ def __lldb_init_module(debugger, internal_dict):
         lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.armthumb armthumb", res)
     # add the hook - we don't need to wait for a target to be loaded
     lldb.debugger.GetCommandInterpreter().HandleCommand("target stop-hook add -o \"HandleHookStopOnTarget\"", res)
-    
+
     return
 
 def lldbinitcmds(debugger, command, result, dict):
@@ -1913,6 +1925,61 @@ Note: expressions supported, do not use spaces between operators.
     result.PutCString("".join(GlobalListOutput))
     result.SetStatus(lldb.eReturnStatusSuccessFinishResult)
 
+def sections_dump():
+    pass
+
+def memory_dump():
+
+    global MemoryDump
+
+    p = get_process()
+    pid = p.GetProcessID()
+
+    result = subprocess.check_output(["/usr/bin/vmmap","%d" % (pid)])
+    r = result.split("\n")
+
+    x = lambda x,y,z: x.index(z) if y in z else 0
+
+    for i in r:
+        index = x(r,"==== Writable regions for process",i)
+        if index:
+            index += 2
+            break
+
+    count = 1
+
+    while "Legend" not in r[index] and r[index]:
+        data = filter(None,r[index].split("  "))
+
+        data[1] = data[1].split()[0]
+
+        perm = ""
+        key =""
+
+	if "rw-" in data[-1]:
+	    perm = data[-1].split()[1]
+            if data[0] in MemoryDump:
+
+		key = data[0]+str(count)
+
+		MemoryDump[key] = {"Range":data[1].split("-"),"Permission":perm,"RegionDetail":"None"}
+		
+                count += 1
+	    else:
+		MemoryDump[data[0]] = {"Range":data[1].split("-"),"Permission":perm,"RegionDetail":"None"}
+	else:
+
+	    perm = data[-2].split()[1]
+
+	    if data[0] in MemoryDump:
+		key = data[0]+str(count)
+		
+                MemoryDump[key] = {"Range":data[1].split("-"),"Permission":perm,"RegionDetail":data[-1]}
+		
+                count += 1
+	    else:
+		MemoryDump[data[0]] = {"Range":data[1].split("-"),"Permission":perm,"RegionDetail":data[-1]}
+	index += 1    
 
 def hexdump(addr, chars, sep, width, lines=5):
     l = []
@@ -1924,7 +1991,9 @@ def hexdump(addr, chars, sep, width, lines=5):
         line = chars[:width]
         chars = chars[width:]
         line = line.ljust( width, '\000' )
+        
         arch = get_arch()
+        
         if get_pointer_size() == 4:
             szaddr = "0x%.08X" % addr
         else:
@@ -2903,6 +2972,10 @@ def dump_jumpx86(eflags):
     color_reset()
 
 def reg64():
+    
+    global MemoryDump
+    global CONFIG_VMMAP_ENABLE
+
     global old_cs
     global old_ds
     global old_fs
@@ -2927,6 +3000,10 @@ def reg64():
     global old_r15
     global old_rflags
     global old_rip
+    
+    if not CONFIG_VMMAP_ENABLE:
+        memory_dump()
+        CONFIG_VMMAP_ENABLE = 1
 
     rax = get_gp_register("rax")
     rcx = get_gp_register("rcx")
@@ -2949,13 +3026,33 @@ def reg64():
     cs = get_gp_register("cs")
     gs = get_gp_register("gs")
     fs = get_gp_register("fs")
-
+    
     color(COLOR_REGNAME)
-    output("RAX: ")
+    output("RAX: ") 
     if rax == old_rax:
         color(COLOR_REGVAL)
     else:
-        color(COLOR_REGVAL_MODIFIED)
+	color(COLOR_REGVAL_MODIFIED)
+    
+    """
+    for key,value in MemoryDump.iteritems():
+       interval = value['Range']
+       if int("0x"+interval[0],16) <= rax and rax <= int("0x"+interval[1],16):
+           #Check for code,data,value etc...
+           if "__DATA" in key:
+               break
+           
+           if "Stack" in key:
+               output("HERE0x%.016lX\n" % (rax))
+               break
+    """
+    """
+    try:
+        membuff = target.ReadMemory(rax,0x100,res)
+    except:
+	pass 
+    """
+
     output("0x%.016lX\n" % (rax))
 
     old_rax = rax
@@ -3735,8 +3832,8 @@ def lu(debugger, command, result, dict):
     if res.Succeeded():
         payload =  res.GetOutput().split()
         
-        payload[0] = "\033[0;31m%s\033[0m: \033[1;34m%s\033[0m" % (payload[0][:len(payload[0])-1],cmd[0])
-        
+        payload[0] = " \033[0;31m%s\033[0m: \033[1;34m%s\033[0m" % (payload[0][:len(payload[0])-1],cmd[0])
+
         index = payload[1].index("[")
         
         payload[1] = "\033[0;32m%s\033[0m\033[1;34m%s\033[0m\n" % (payload[1][:index],payload[1][index:])
@@ -4337,6 +4434,7 @@ def HandleHookStopOnTarget(debugger, command, result, dict):
     global arm_type
     global CONFIG_DISPLAY_STACK_WINDOW
     global CONFIG_DISPLAY_FLOW_WINDOW
+    global CONFIG_VMMAP_ENABLE 
 
     debugger.SetAsync(True)
 
@@ -4364,6 +4462,7 @@ def HandleHookStopOnTarget(debugger, command, result, dict):
     GlobalListOutput = []
     
     arch = get_arch()
+
     if not is_i386() and not is_x64() and not is_arm():
         #this is for ARM probably in the future... when I will need it...
         print("[-] error: Unknown architecture : " + arch)
@@ -4510,7 +4609,9 @@ def HandleHookStopOnTarget(debugger, command, result, dict):
 
     color_reset()
     data = "".join(GlobalListOutput)
+   
     
+
     result.PutCString(data)
     result.SetStatus(lldb.eReturnStatusSuccessFinishResult)
     return 0
