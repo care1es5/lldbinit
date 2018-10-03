@@ -1944,6 +1944,11 @@ Note: expressions supported, do not use spaces between operators.
 
 
 def vmmap():
+    '''
+    Code form gdb-peda
+    author:longld
+    url:https://github.com/longld/peda/blob/master/peda.py
+    '''
 
     global MemoryDump
 
