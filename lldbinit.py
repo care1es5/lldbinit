@@ -162,23 +162,40 @@ old_ss  = 0
 old_es  = 0
 
 old_rax = 0
+old_raxstr = "" 
 old_rcx = 0
+old_rcxstr = "" 
 old_rdx = 0
+old_rdxstr = "" 
 old_rbx = 0
+old_rbxstr = "" 
 old_rsp = 0
+old_rspstr = "" 
 old_rbp = 0
+old_rbpstr = "" 
 old_rsi = 0
+old_rsistr = "" 
 old_rdi = 0
+old_rdistr = "" 
 old_r8  = 0
+old_r8str = "" 
 old_r9  = 0
+old_r9str = "" 
 old_r10 = 0
+old_r10str = "" 
 old_r11 = 0
+old_r11str = "" 
 old_r12 = 0
+old_r12str = "" 
 old_r13 = 0
+old_r13str = "" 
 old_r14 = 0
+old_r14str = "" 
 old_r15 = 0
+old_r15str = "" 
 old_rflags = 0
 old_rip = 0
+old_ripstr = "" 
 
 old_arm_r0  = 0
 old_arm_r1  = 0
@@ -204,7 +221,7 @@ GlobalListOutput = []
 
 Int3Dictionary = {}
 
-MemoryDump = {}
+MemoryDump = []
 
 SectionsDump = {}
 
@@ -367,7 +384,7 @@ def __lldb_init_module(debugger, internal_dict):
         lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.armthumb armthumb", res)
     # add the hook - we don't need to wait for a target to be loaded
     lldb.debugger.GetCommandInterpreter().HandleCommand("target stop-hook add -o \"HandleHookStopOnTarget\"", res)
-
+    
     return
 
 def lldbinitcmds(debugger, command, result, dict):
@@ -1925,61 +1942,31 @@ Note: expressions supported, do not use spaces between operators.
     result.PutCString("".join(GlobalListOutput))
     result.SetStatus(lldb.eReturnStatusSuccessFinishResult)
 
-def sections_dump():
-    pass
 
-def memory_dump():
+def vmmap():
 
     global MemoryDump
 
     p = get_process()
     pid = p.GetProcessID()
-
-    result = subprocess.check_output(["/usr/bin/vmmap","%d" % (pid)])
-    r = result.split("\n")
-
-    x = lambda x,y,z: x.index(z) if y in z else 0
-
-    for i in r:
-        index = x(r,"==== Writable regions for process",i)
-        if index:
-            index += 2
-            break
-
-    count = 1
-
-    while "Legend" not in r[index] and r[index]:
-        data = filter(None,r[index].split("  "))
-
-        data[1] = data[1].split()[0]
-
-        perm = ""
-        key =""
-
-	if "rw-" in data[-1]:
-	    perm = data[-1].split()[1]
-            if data[0] in MemoryDump:
-
-		key = data[0]+str(count)
-
-		MemoryDump[key] = {"Range":data[1].split("-"),"Permission":perm,"RegionDetail":"None"}
-		
-                count += 1
-	    else:
-		MemoryDump[data[0]] = {"Range":data[1].split("-"),"Permission":perm,"RegionDetail":"None"}
-	else:
-
-	    perm = data[-2].split()[1]
-
-	    if data[0] in MemoryDump:
-		key = data[0]+str(count)
-		
-                MemoryDump[key] = {"Range":data[1].split("-"),"Permission":perm,"RegionDetail":data[-1]}
-		
-                count += 1
-	    else:
-		MemoryDump[data[0]] = {"Range":data[1].split("-"),"Permission":perm,"RegionDetail":data[-1]}
-	index += 1    
+    result = subprocess.check_output(["/usr/bin/vmmap","-w","%d" % (pid)])
+    pattern = re.compile("([^\n]*)\s*  ([0-9a-f][^-\s]*)-([^\s]*) \[.*\]\s([^/]*).*  (.*)")
+    
+    matches = pattern.findall(result)
+    if matches:
+        for (name, start, end, perm, mapname) in matches:
+            if name.startswith("Stack"):
+	        mapname = "[Stack]"
+            try:
+		start = int(str("0x%s" % start),0)
+		end = int(str("0x%s" % end),0)
+            except:
+                pass
+	    if mapname == "":
+		mapname = name.strip()
+	    MemoryDump += [(name,start, end, perm, mapname)]
+    
+    
 
 def hexdump(addr, chars, sep, width, lines=5):
     l = []
@@ -2000,8 +1987,8 @@ def hexdump(addr, chars, sep, width, lines=5):
             szaddr = "0x%.016lX" % addr
         fmt = "0"*(4-len(str(stack_counter)))+str(stack_counter)
         l.append("%s| \033[34m%s\033[0m --> \033[35m %s%s\033[0m \033[1m%s\033[0m" % (fmt,szaddr, sep.join( "%02X" % ord(c) for c in line ), sep, quotechars( line )))
-        addr += 0x8
-        stack_counter += 0x8
+        addr += 0x10
+        stack_counter += 0x10
         line_count += 1
 
     return "\n".join(l)
@@ -2015,6 +2002,25 @@ def quotechars( chars ):
         else:       
             data += "."
     return data
+
+def examine_memory(address,name):
+    '''keep read pointer until it can't go farther'''
+    
+    error = lldb.SBError()
+    p = get_process()
+    data = []
+    if name.startswith("Stack"):
+        err_flag = 0
+        check = address
+        while not err_flag:
+            addr = p.ReadPointerFromMemory(check,error)
+            if error.Success():
+                data.append(addr)
+                check = addr
+            else:
+                err_flag = 1
+    
+    return data 
 
 # XXX: help
 def findmem(debugger, command, result, dict):
@@ -2202,6 +2208,7 @@ Note: expressions supported, do not use spaces between operators.
         DATA_WINDOW_ADDRESS = 0
         return
     DATA_WINDOW_ADDRESS = dump_addr
+
 
 #
 # End Memory related commands
@@ -2983,26 +2990,43 @@ def reg64():
     global old_ss
     global old_es
     global old_rax
+    global old_raxstr
     global old_rcx
+    global old_rcxstr
     global old_rdx
+    global old_rdxstr
     global old_rbx
+    global old_rbxstr
     global old_rsp
+    global old_rspstr
     global old_rbp
+    global old_rbpstr
     global old_rsi
+    global old_rsistr
     global old_rdi
+    global old_rdistr
     global old_r8 
+    global old_r8str
     global old_r9 
+    global old_r9str
     global old_r10
+    global old_r10str
     global old_r11
+    global old_r11str
     global old_r12
+    global old_r12str
     global old_r13
+    global old_r13str
     global old_r14
+    global old_r14str
     global old_r15
+    global old_r15str
     global old_rflags
     global old_rip
+    global old_ripstr
     
     if not CONFIG_VMMAP_ENABLE:
-        memory_dump()
+        vmmap()
         CONFIG_VMMAP_ENABLE = 1
 
     rax = get_gp_register("rax")
@@ -3028,179 +3052,916 @@ def reg64():
     fs = get_gp_register("fs")
     
     color(COLOR_REGNAME)
-    output("RAX: ") 
-    if rax == old_rax:
-        color(COLOR_REGVAL)
-    else:
-	color(COLOR_REGVAL_MODIFIED)
+    output("RAX: ")
     
-    """
-    for key,value in MemoryDump.iteritems():
-       interval = value['Range']
-       if int("0x"+interval[0],16) <= rax and rax <= int("0x"+interval[1],16):
-           #Check for code,data,value etc...
-           if "__DATA" in key:
-               break
-           
-           if "Stack" in key:
-               output("HERE0x%.016lX\n" % (rax))
-               break
-    """
-    """
-    try:
-        membuff = target.ReadMemory(rax,0x100,res)
-    except:
-	pass 
-    """
+    target = get_target()
+    
+    color_reset()
 
-    output("0x%.016lX\n" % (rax))
+    rax_flag = 0
+    
+    if old_rax == rax:
+        rax_flag = 1
+        output(old_raxstr) 
+    else:
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if rax >= start and rax <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
 
+                    ins = target.ReadInstructions(lldb.SBAddress(rax,target),1,'intel')
+                    old_raxstr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rax,ins)  
+                    output(old_raxstr)
+                
+                elif "Stack" in s_name:
+                    error = lldb.SBError()
+                    p = target.process
+                    ptr_list = examine_memory(rax,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rax,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(rax)
+                        fmt += "\033[0m --> "
+                        
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                        
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_raxstr = fmt 
+                    output(old_raxstr)
+                else:
+                    output("0x%.016lX\n" % (rax))
+
+                rax_flag = 1
+
+    if not rax_flag:
+        old_raxstr ="0x%.016lX\n" % (rax) 
+        output(old_raxstr)
+        
     old_rax = rax
     
     color(COLOR_REGNAME)
     output("RBX: ")
-    if rbx == old_rbx:
-        color(COLOR_REGVAL)
+    color_reset()
+
+    rbx_flag = 0
+
+    if old_rbx == rbx:
+        output(old_rbxstr) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lx\n" % (rbx))
-    
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if rbx >= start and rbx <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(rbx,target),1,'intel')
+                    old_rbxstr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rbx,ins)  
+                    output(old_rbxstr)
+
+                elif "Stack" in s_name:
+                    error = lldb.SBError()
+                    ptr_list = examine_memory(rbx,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rbx,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(rbx)
+                        fmt += "\033[0m --> "
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                        
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX\n" % (ptr_list[-1])
+                        fmt += "\n"
+
+                    old_rbxstr = fmt 
+                    output(old_rbxstr)
+                else:
+                    output("0x%.016lX\n" % (rbx))
+                
+                rbx_flag = 1
+
+    if not rbx_flag:
+        output("0x%.016lX\n" % (rbx))
+
     old_rbx = rbx
     
     color(COLOR_REGNAME)
+    output("RCX: ")
+    color_reset()
 
-    output("RBP: ")
-    if rbp == old_rbp:
-        color(COLOR_REGVAL)
+    rcx_flag = 0
+
+    if old_rcx == rcx:
+        rcx_flag = 1
+        output(old_rcxstr) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (rbp))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if rcx >= start and rcx <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(rcx,target),1,'intel')
+                    old_rcxstr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rcx,ins)  
+                    output(old_rcxstr)
+
+                elif "Stack" in s_name:
+                    error = lldb.SBError() 
+                    ptr_list = examine_memory(rcx,s_name)
+                    p = target.process
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rcx,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(rcx)
+                        fmt += "\033[0m --> "
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                        
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_rcxstr = fmt                    
+                    output(old_rcxstr)
+                else:
+                    output("0x%.016lX\n" % (rcx))
+                
+                rcx_flag = 1
+
+    if not rcx_flag:
+        old_rcxstr = "0x%.016lX\n" % (rcx) 
+        output(old_rcxstr)
+
+    old_rcx = rcx 
+
+    color(COLOR_REGNAME)
+    
+    output("RDX: ")
+    
+    color_reset()
+
+    rdx_flag = 0
+
+    if old_rdx == rdx:
+        rdx_flag = 1
+        output(old_rdxstr) 
+    else:
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if rdx >= start and rdx <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(rdx,target),1,'intel')
+                    old_rdxstr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rdx,ins)  
+                    output(old_rdxstr)
+
+                elif "Stack" in s_name:
+                    error = lldb.SBError() 
+                    ptr_list = examine_memory(rdx,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rdx,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(rdx)
+                        fmt += "\033[0m --> "
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                        
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        fmt += "\n"
+
+                    old_rdxstr = fmt                    
+                    output(old_rdxstr)
+                else:
+                    output("0x%.016lX\n" % (rdx))
+                
+                rdx_flag = 1
+
+    if not rdx_flag:
+        old_rdxstr = "0x%.016lX\n" % (rdx)
+        output(old_rdxstr)            
+    
+    old_rdx = rdx
+
+    color(COLOR_REGNAME)
+    output("RSI: ")
+   
+    color_reset()
+
+    rsi_flag = 0
+
+    if old_rsi == rsi:
+        rsi_flag = 1
+        output(old_rsistr) 
+    else:
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if rsi >= start and rsi <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(rsi,target),1,'intel')
+                    old_rsistr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rsi,ins)  
+                    output(old_rsistr)
+
+                elif "Stack" in s_name:
+                    ptr_list = examine_memory(rsi,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rsi,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(rsi)
+                        fmt += "\033[0m --> "
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                        
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_rsistr = fmt                    
+                    output(old_rsistr)
+                else:
+                    output("0x%.016lX\n" % (rsi))
+                
+                rsi_flag = 1
+
+    if not rsi_flag:
+        old_rsistr = "0x%.016lX\n" % (rsi)
+        output(old_rsistr)    
+        
+    old_rsi = rsi
+    
+    color(COLOR_REGNAME)
+    output("RDI: ")
+    
+    color_reset()
+
+    rdi_flag = 0
+
+    if old_rdi == rdi and old_rdistr:
+        rdi_flag = 1
+        output(old_rdistr) 
+    else:
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if rdi >= start and rdi <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(rdi,target),1,'intel')
+                    old_rdistr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rdi,ins)  
+                    output(old_rdistr)
+
+                elif "Stack" in s_name:
+                    error = lldb.SBError()
+                    p = target.process
+                    ptr_list = examine_memory(rsp,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rdi,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(rdi)
+                        fmt += "\033[0m --> "
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                        
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_rdistr = fmt                    
+                    output(old_rdistr)
+                else:
+                    output("0x%.016lX\n" % (rdi))
+                
+                rdi_flag = 1
+
+    if not rdi_flag:
+        old_rdistr = "0x%.016lX\n" % (rdi)
+        output(old_rdistr)
+    
+    old_rdi = rdi
+    
+    color(COLOR_REGNAME)
+    output("RBP: ")
+    
+    color_reset()
+    
+    rbp_flag = 0
+
+    if old_rbp == rbp:
+        rbp_flag = 1
+        output(old_rbpstr) 
+    else:
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if rbp >= start and rbp <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(rbp,target),1,'intel')
+                    old_rbpstr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rbp,ins)  
+                    output(old_rbpstr)
+
+                elif "Stack" in s_name:
+                    error = lldb.SBError()
+                    p = target.process
+                    ptr_list = examine_memory(rbp,s_name)
+                    
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rbp,ptr_list[0])
+                    else:
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                        
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_rbpstr = fmt 
+                    output(old_rbpstr)
+
+                else:
+                    output("0x%.016lX\n" % (rbp))
+                
+                rbp_flag = 1
+
+    if not rbp_flag:
+        old_rbpstr = "0x%.016lX\n" % (rbp)
+        output(old_rbpstr)
+    
     old_rbp = rbp
     
     color(COLOR_REGNAME)
     output("RSP: ")
-    if rsp == old_rsp:
-        color(COLOR_REGVAL)
+    
+    color_reset()
+    
+    rsp_flag = 0
+
+    if old_rsp == rsp and old_rspstr:
+        rsp_flag = 1
+        output(old_rspstr) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (rsp))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if rsp >= start and rsp <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(rsp,target),1,'intel')
+                    old_rspstr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rsp,ins)  
+                    output(old_rspstr)
+
+                elif "Stack" in s_name:
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(rsp,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rsp,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(rsp)
+                        fmt += "\033[0m --> "
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_rspstr = fmt 
+                    output(old_rspstr)
+                else:
+                    output("0x%.016lX\n" % (rsp))
+                
+                rsp_flag = 1
+
+    if not rsp_flag:
+        old_rspstr = "0x%.016lX\n" % (rsp)
+        output(old_rspstr)
+    
     old_rsp = rsp
-            
-    color(COLOR_REGNAME)
-    output("RDI: ")
-    if rdi == old_rdi:
-        color(COLOR_REGVAL)
-    else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (rdi))
-    old_rdi = rdi
-    
-    color(COLOR_REGNAME)
-    output("RSI: ")
-    if rsi == old_rsi:
-        color(COLOR_REGVAL)
-    else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (rsi))
-    old_rsi = rsi
-    
-    color(COLOR_REGNAME)
-    output("RDX: ")
-    if rdx == old_rdx:
-        color(COLOR_REGVAL)
-    else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (rdx))
-    old_rdx = rdx
-    
-    color(COLOR_REGNAME)
-    output("RCX: ")
-    if rcx == old_rcx:
-        color(COLOR_REGVAL)
-    else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (rcx))
-    old_rcx = rcx
-    
+     
     color(COLOR_REGNAME)
     output("RIP: ")
-    if rip == old_rip:
-        color(COLOR_REGVAL)
-    else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (rip))
+    
+    color_reset()
+    
+    ins = target.ReadInstructions(lldb.SBAddress(rip,target),1,'intel')
+    output("\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rip,ins))
+
     old_rip = rip
-        
+    
     color(COLOR_REGNAME)
     output("R8:  ")
-    if r8 == old_r8:
-        color(COLOR_REGVAL)
+    
+    color_reset()
+    
+    r8_flag = 0
+
+    if old_r8 == r8 and old_r8str:
+        r8_flag = 1
+        output(old_r8str) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (r8))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if r8 >= start and r8 <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(r8,target),1,'intel')
+                    old_r8str ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (r8,ins)  
+                    output(old_r8str)
+
+                elif "Stack" in s_name:
+                    
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(r8,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(r8,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(r8)
+                        fmt += "\033[0m --> "
+
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_r8str = fmt 
+                    output(old_r8str)
+
+                else:
+                    output("0x%.016lX\n" % (r8))
+                
+                r8_flag = 1
+    
+    if not r8_flag:
+        old_r8str = "0x%.016lX\n" % (r8)
+        output(old_r8str)
+    
     old_r8 = r8
     
     color(COLOR_REGNAME)
     output("R9:  ")
-    if r9 == old_r9:
-        color(COLOR_REGVAL)
+    color_reset()
+
+    r9_flag = 0
+
+    if old_r9 == r9 and old_r9str:
+        r9_flag = 1
+        output(old_r9str) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (r9))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if r9 >= start and r9 <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(r9,target),1,'intel')
+                    old_r9str ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (r9,ins)  
+                    output(old_r9str)
+
+                elif "Stack" in s_name:
+                    
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(r9,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(r9,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(r9)
+                        fmt += "\033[0m --> "
+
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_r9str = fmt
+                    output(old_r8str)
+                else:
+                    output("0x%.016lX\n" % (r9))
+                
+                r9_flag = 1
+    
+    if not r9_flag:
+        old_r9str = "0x%.016lX\n" % (r9)
+        output(old_r9str)
+    
+    
     old_r9 = r9
     
     color(COLOR_REGNAME)
     output("R10: ")
-    if r10 == old_r10:
-        color(COLOR_REGVAL)
-    else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (r10))
-    old_r10 = r10
     
+    color_reset()
+
+    r10_flag = 0
+
+    if old_r10 == r10 and old_r10str:
+        r10_flag = 1
+        output(old_r10str) 
+    else:
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if r10 >= start and r10 <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(r10,target),1,'intel')
+                    old_r10str ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (r10,ins)  
+                    output(old_r10str)
+
+                elif "Stack" in s_name:
+                    
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(r10,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(r10,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(r10)
+                        fmt += "\033[0m --> "
+
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_r9str = fmt
+                    output(old_r10str)                
+                else:
+                    output("0x%.016lX\n" % (r10))
+                
+                r10_flag = 1
+    
+    if not r10_flag:
+        old_r10str = "0x%.016lX\n" % (r10)
+        output(old_r10str)
+        old_r10 = r10
+    
+    old_r10 = r10
+
     color(COLOR_REGNAME)
     output("R11: ")
-    if r11 == old_r11:
-        color(COLOR_REGVAL)
+   
+    color_reset()
+
+    r11_flag = 0
+
+    if old_r11 == r11 and old_r11str:
+        r11_flag = 1
+        output(old_r11str) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (r11))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if r11 >= start and r11 <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(r11,target),1,'intel')
+                    old_r11str ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (r11,ins)  
+                    output(old_r11str)
+
+                elif "Stack" in s_name:
+                    
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(r11,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(r11,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(r11)
+                        fmt += "\033[0m --> "
+
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_r11str = fmt
+                    output(old_r11str)
+                else:
+                    output("0x%.016lX\n" % (r11))
+                
+                r11_flag = 1
+    
+    if not r11_flag:
+        old_r11str = "0x%.016lX\n" % (r11)
+        output(old_r11str)
+    
     old_r11 = r11
     
     color(COLOR_REGNAME)
     output("R12: ")
-    if r12 == old_r12:
-        color(COLOR_REGVAL)
+    
+    color_reset()
+
+    r12_flag = 0
+
+    if old_r12 == r12 and old_r12str:
+        r12_flag = 1
+        output(old_r12str) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (r12))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if r12 >= start and r12 <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(r12,target),1,'intel')
+                    old_r12str ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (r12,ins)  
+                    output(old_r12str)
+
+                elif "Stack" in s_name:
+                    
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(r12,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(r12,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(r12)
+                        fmt += "\033[0m --> "
+
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_r12str = fmt
+                    output(old_r12str)                
+                else:
+                    output("0x%.016lX\n" % (r12))
+                
+                r12_flag = 1
+    
+    if not r12_flag:
+        old_r12str = "0x%.016lX\n" % (r12)
+        output(old_r12str)
+    
     old_r12 = r12
         
     color(COLOR_REGNAME)
     output("R13: ")
-    if r13 == old_r13:
-        color(COLOR_REGVAL)
+    
+    color_reset()
+
+    r13_flag = 0
+
+    if old_r13 == r13 and old_r13str:
+        r13_flag = 1
+        output(old_r12str) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (r13))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if r13 >= start and r13 <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(r13,target),1,'intel')
+                    old_r13str ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (r13,ins)  
+                    output(old_r13str)
+
+                elif "Stack" in s_name:
+                    
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(r13,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(r13,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(r13)
+                        fmt += "\033[0m --> "
+
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_r13str = fmt
+                    output(old_r13str)                
+                else:
+                    output("0x%.016lX\n" % (r13))
+                
+                r13_flag = 1
+    
+    if not r13_flag:
+        old_r13str = "0x%.016lX\n" % (r13)
+        output(old_r13str)
+    
     old_r13 = r13
     
     color(COLOR_REGNAME)
     output("R14: ")
-    if r14 == old_r14:
-        color(COLOR_REGVAL)
+    
+    color_reset()
+
+    r14_flag = 0
+
+    if old_r14 == r14 and old_r14str:
+        r14_flag = 1
+        output(old_r14str) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (r14))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if r14 >= start and r14 <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(r14,target),1,'intel')
+                    old_r14str ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (r14,ins)  
+                    output(old_r14str)
+
+                elif "Stack" in s_name:
+                    
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(r14,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(r14,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(r14)
+                        fmt += "\033[0m --> "
+
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_r14str = fmt
+                    output(old_r14str)
+                else:
+                    output("0x%.016lX\n" % (r14))
+                
+                r14_flag = 1
+    
+    if not r14_flag:
+        old_r14str = "0x%.016lX\n" % (r14)
+        output(old_r14str)
+    
     old_r14 = r14
     
     color(COLOR_REGNAME)
     output("R15: ")
-    if r15 == old_r15:
-        color(COLOR_REGVAL)
+    
+    color_reset()
+
+    r15_flag = 0
+
+    if old_r15 == r15 and old_r15str:
+        r15_flag = 1
+        output(old_r15str) 
     else:
-        color(COLOR_REGVAL_MODIFIED)
-    output("0x%.016lX\n" % (r15))
+        for (s_name,start,end,perm,name) in MemoryDump:
+            if r15 >= start and r15 <= end:
+                if "__TEXT" in s_name or "__DATA" in s_name:
+                    
+                    ins = target.ReadInstructions(lldb.SBAddress(r15,target),1,'intel')
+                    old_r15str ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (r15,ins)  
+                    output(old_r15str)
+
+                elif "Stack" in s_name:
+                    
+                    error = lldb.SBError() 
+                    p = target.process
+                    ptr_list = examine_memory(r15,s_name)
+                      
+                    fmt = ""
+                    
+                    if len(ptr_list) == 1:
+                        fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(r15,ptr_list[0])
+                    else:
+                        fmt += "\033[0;34m0x%.016lX" %(r15)
+                        fmt += "\033[0m --> "
+
+                        for x in range(len(ptr_list)-1):
+                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                            fmt += "\033[0m --> "
+                         
+                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
+                        if error.Success():
+                            fmt += "('"+cstring+"')"
+                        
+                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                        fmt += "\n"
+
+                    old_r15str = fmt
+                    output(old_r15str)
+                else:
+                    output("0x%.016lX\n" % (r15))
+                
+                r15_flag = 1
+    
+    if not r15_flag:
+        old_r15str = "0x%.016lX\n" % (r15)
+        output(old_r15str)
+    
     old_r15 = r15
         
     color(COLOR_REGNAME)
@@ -4218,12 +4979,18 @@ def IphoneConnect(debugger, command, result, dict):
 
 def display_stack():
     '''Hex dump current stack pointer'''
+    
     stack_addr = get_current_sp()
+    
     if stack_addr == 0:
         return
+    
     err = lldb.SBError()
+    
     target = get_target()
+    
     membuff = get_process().ReadMemory(stack_addr, 0x100, err)
+
     if err.Success() == False:
         print "[-] error: Failed to read memory at 0x%x." % stack_addr
         return
