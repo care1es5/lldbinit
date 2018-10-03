@@ -36,6 +36,9 @@ If you are lazy, just run `lldbinit.sh`
 - More to come...
 
 ## Screenshot
+
+![peda](https://github.com/z3r0s/lldbinit/blob/master/img/peda_format.png)
+
 ![stack](https://github.com/z3r0s/lldbinit/blob/master/img/stack_command.png)
 
 
