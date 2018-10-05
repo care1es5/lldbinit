@@ -274,6 +274,7 @@ def __lldb_init_module(debugger, internal_dict):
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.dq dq", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.DumpInstructions u", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.lu lu", res)
+    lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.SectionDump sec", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("command script add -f lldbinit.findmem findmem", res)
     #
     # Settings related commands
@@ -420,10 +421,11 @@ def lldbinitcmds(debugger, command, result, dict):
     [ "db/dw/dd/dq", "memory hex dump in different formats" ],
     [ "findmem", "search memory" ],
     [ "cfa/cfc/cfd/cfi/cfo/cfp/cfs/cft/cfz", "change CPU flags" ],
-    [ "lu", "image lookup" ],
+    [ "lu", "function offset lookup" ],
     [ "u", "dump instructions" ],
     [ "iphone", "connect to debugserver running on iPhone" ],
     [ "ctx/context", "show current instruction pointer CPU context" ],
+    [ "sec", "show different sections in the binary" ],
     [ "show_loadcmds", "show otool output of Mach-O load commands" ],
     [ "show_header", "show otool output of Mach-O header" ],
     [ "enablesolib/disablesolib", "enable/disable the stop on library load events" ],
@@ -1944,11 +1946,6 @@ Note: expressions supported, do not use spaces between operators.
 
 
 def vmmap():
-    '''
-    Code form gdb-peda
-    author:longld
-    url:https://github.com/longld/peda/blob/master/peda.py
-    '''
 
     global MemoryDump
 
@@ -3079,7 +3076,7 @@ def reg64():
                 
                 elif "Stack" in s_name:
                     error = lldb.SBError()
-                    p = target.process
+                    p = get_process()
                     ptr_list = examine_memory(rax,s_name)
                       
                     fmt = ""
@@ -3499,7 +3496,8 @@ def reg64():
     color_reset()
     
     ins = target.ReadInstructions(lldb.SBAddress(rip,target),1,'intel')
-    output("\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rip,ins))
+    rip_out = "\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rip,str(ins).rstrip())
+    output(rip_out)
 
     old_rip = rip
     
@@ -4569,15 +4567,16 @@ def get_inst_size(target_addr):
 # Commands that use external utilities
 #
 
-def lu(debugger, command, result, dict):
-    '''Image Lookup <address> <image>'''
+def SectionDump(debugger,command,result,dict):
+    '''Section Dump'''
     
-    help = """
-    Show image lookup output at specified address 
+    help='''
+    
+    Show different sections in the binary
+     
+    Syntax: sec <no args needed>
+    '''
 
-    Syntax: lu <address> <image>
-
-    """
     error = lldb.SBError()
     cmd = command.split()
     target = get_target()
@@ -4587,17 +4586,63 @@ def lu(debugger, command, result, dict):
         if cmd[0] == "help":
             print help
             return 
-
-    if len(cmd) == 2:
-       run_cmd = "image lookup --address "+cmd[0]+" "+cmd[1]
-       target.debugger.GetCommandInterpreter().HandleCommand(run_cmd,res)
-    else:
-       run_cmd = "image lookup --address "+cmd[0]
-       target.debugger.GetCommandInterpreter().HandleCommand(run_cmd,res)
     
-    if res.Succeeded():
-        payload =  res.GetOutput().split()
-        
+    mod = target.get_modules_array()
+    
+    for m in mod:
+        sec = m.get_sections_array()
+        for data in sec:
+            name = data.GetName()
+            addr = data.GetLoadAddress(target)
+            perm = data.GetPermissions()
+            sec_data = data.GetSectionData()
+            
+def lu(debugger, command, result, dict):
+    '''Image Lookup <address> <image>'''
+    
+    help = """
+    
+    Function Offset Lookup command
+
+    Syntax: lu <address or name> <image>
+    
+    Note: For now, it is an offset only...not fully resolved address
+    """
+
+    error = lldb.SBError()
+    cmd = command.split()
+    target = get_target()
+    res = lldb.SBCommandReturnObject()
+   
+
+    if len(cmd) == 0:
+        print help
+        return
+   
+    if len(cmd) == 1:
+        if cmd[0] == "help":
+            print help
+            return
+        else:
+            load_addr = 0
+            mod = target.get_modules_array()
+            for m in mod:
+                
+                sys = m.FindSymbol(cmd[0])
+
+                module = str(m).split()[1]
+
+                for (s_name,start,end,perm,name) in MemoryDump:
+                    if module in name:
+                        load_addr = start
+                        break
+
+                if sys:
+                    print "\033[0;34mModule\033[0m: %s" %(module)
+                    print "\033[0;33mLoad Address\033[0m: 0x%.016lX" %(load_addr)
+                    print "\033[0;31mSymbol\033[0m: %s" %(sys)
+
+        """
         payload[0] = " \033[0;31m%s\033[0m: \033[1;34m%s\033[0m" % (payload[0][:len(payload[0])-1],cmd[0])
 
         index = payload[1].index("[")
@@ -4613,8 +4658,7 @@ def lu(debugger, command, result, dict):
         payload =  " ".join(payload)
         
         print payload
-    else:
-        print res
+        """
        
 def show_loadcmds(debugger, command, result, dict): 
     '''Show otool output of Mach-O load commands. Use \'show_loadcmds\' for more information.'''
@@ -5161,6 +5205,7 @@ def display_objc():
 
     membuff = get_process().ReadMemory(selector_addr, 0x100, err)
     strings = membuff.split('\00')
+    
     if len(strings) != 0:
         color(RED)
         output('Class: ')
