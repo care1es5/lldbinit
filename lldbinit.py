@@ -3084,14 +3084,35 @@ def reg64():
                     if len(ptr_list) == 1:
                         fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rax,ptr_list[0])
                     else:
+                        
                         fmt += "\033[0;34m0x%.016lX" %(rax)
                         fmt += "\033[0m --> "
                         
+                        stop = 0
+
                         for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+                                            
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
                         if error.Success():
                             fmt += "('"+cstring+"')"
                         
@@ -3140,10 +3161,27 @@ def reg64():
                         fmt += "\033[0;34m0x%.016lX" %(rbx)
                         fmt += "\033[0m --> "
                         for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+                                            
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
                         
                         if error.Success():
                             fmt += "('"+cstring+"')"
@@ -3191,13 +3229,35 @@ def reg64():
                     if len(ptr_list) == 1:
                         fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rcx,ptr_list[0])
                     else:
+                        
                         fmt += "\033[0;34m0x%.016lX" %(rcx)
                         fmt += "\033[0m --> "
-                        for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        stop = 0
+
+                        for x in range(len(ptr_list)-1):
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+                                            
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                        
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
                         if error.Success():
                             fmt += "('"+cstring+"')"
                         #fmt += "0x%.016lX" %(ptr_list[-1])
@@ -3247,13 +3307,34 @@ def reg64():
                     else:
                         fmt += "\033[0;34m0x%.016lX" %(rdx)
                         fmt += "\033[0m --> "
+                        stop = 0
+
                         for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+                                            
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        
                         if error.Success():
                             fmt += "('"+cstring+"')"
+
                         fmt += "\n"
 
                     old_rdxstr = fmt                    
@@ -3298,11 +3379,29 @@ def reg64():
                     else:
                         fmt += "\033[0;34m0x%.016lX" %(rsi)
                         fmt += "\033[0m --> "
+
                         for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+                                            
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
                         
                         if error.Success():
                             fmt += "('"+cstring+"')"
@@ -3345,7 +3444,7 @@ def reg64():
                 elif "Stack" in s_name:
                     error = lldb.SBError()
                     p = target.process
-                    ptr_list = examine_memory(rsp,s_name)
+                    ptr_list = examine_memory(rdi,s_name)
                       
                     fmt = ""
                     
@@ -3354,11 +3453,31 @@ def reg64():
                     else:
                         fmt += "\033[0;34m0x%.016lX" %(rdi)
                         fmt += "\033[0m --> "
-                        for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        stop = 0
+
+                        for x in range(len(ptr_list)-1):
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+                                            
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                        
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
                         
                         if error.Success():
                             fmt += "('"+cstring+"')"
@@ -3408,11 +3527,32 @@ def reg64():
                     if len(ptr_list) == 1:
                         fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rbp,ptr_list[0])
                     else:
-                        for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
+                        fmt += "\033[0;34m0x%.016lX" %(rbp)
+                        fmt += "\033[0m --> "
                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                        stop = 0
+                        for x in range(len(ptr_list)-1):
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+                        
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
                         
                         if error.Success():
                             fmt += "('"+cstring+"')"
@@ -3461,20 +3601,45 @@ def reg64():
                     fmt = ""
                     
                     if len(ptr_list) == 1:
+                        
                         fmt += "\033[0;34m0x%.016lX\033[0m --> 0x%.016lX\n" %(rsp,ptr_list[0])
                     else:
+                        
+                        stop = 0
+                        
                         fmt += "\033[0;34m0x%.016lX" %(rsp)
                         fmt += "\033[0m --> "
+                        
                         for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
-                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
-                        
-                        if error.Success():
-                            fmt += "('"+cstring+"')"
-                        
-                        #fmt += "0x%.016lX" %(ptr_list[-1])
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+                                            
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" % (ptr_list[x])
+                                            fmt += "\033[0m --> "
+
+                                                    
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+
+                            if error.Success():
+                                fmt += "('"+cstring+"')"
+
+                            #fmt += "0x%.016lX" %(ptr_list[-1])
+
                         fmt += "\n"
 
                     old_rspstr = fmt 
