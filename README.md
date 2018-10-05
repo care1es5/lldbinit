@@ -31,10 +31,13 @@ If you are lazy, just run `lldbinit.sh`
 
 ## Todo
 
-- This was intended to make lldb more like pwndbg/gdb-peda so there are so many commands/features to implement...
-- For now, I have added *stack* command that displays the data on the stack...
+- Add rop search feature for x86 and arm
+- Add display the user defined struct feature
+- Display heap sturcture (Maybe something like [this](https://github.com/blankwall/MacHeap) but better)
+- (For CTF) xor feature 
+- (For CTF) auto solver/exploit for simple problem (This may not be as useful on mac as there is little to no mac challenge in CTF scene but nice to have)
 - More to come...
-
+ 
 ## Screenshot
 
 ![peda](https://github.com/z3r0s/lldbinit/blob/master/img/peda_format.png)
@@ -44,4 +47,7 @@ If you are lazy, just run `lldbinit.sh`
 
 ![stack](https://github.com/z3r0s/lldbinit/blob/master/img/lu_command.png)
 
+## Contributing
+
+- If you want to help with the development, pull requests are always welcomed :). 
 
