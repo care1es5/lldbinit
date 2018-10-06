@@ -42,7 +42,7 @@ If you are lazy, just run `lldbinit.sh`
 
 ![peda](https://github.com/z3r0s/lldbinit/blob/master/img/peda_format.png)
 
-![indirectflow](https://github.com/z3r0s/lldbinit/blob/master/img/indirect_contorl_flow.png.png)
+![indirectflow](https://github.com/z3r0s/lldbinit/blob/master/img/indirect_contorl_flow.png)
 
 ![stack](https://github.com/z3r0s/lldbinit/blob/master/img/stack_command.png)
 
