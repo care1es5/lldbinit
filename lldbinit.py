@@ -3255,6 +3255,8 @@ def reg64():
                                             fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
                                             fmt += "\033[0m --> "
                         
+                        cstring = ""
+
                         if not stop:
                             cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
                         
@@ -3329,7 +3331,9 @@ def reg64():
                                             fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
                                             fmt += "\033[0m --> "
                         
+                        cstring = ""
                         if not stop:
+                            p = target.process
                             cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
                         
                         if error.Success():
@@ -3967,7 +3971,7 @@ def reg64():
 
     if old_r13 == r13 and old_r13str:
         r13_flag = 1
-        output(old_r12str) 
+        output(old_r13str) 
     else:
         for (s_name,start,end,perm,name) in MemoryDump:
             if r13 >= start and r13 <= end:
@@ -5300,7 +5304,6 @@ def get_indirect_flow_target(source_address):
         x = re.search('([a-z0-9]{2,3})', operand)
         if x == None:
             return 0
-        #output("Result {}\n".format(x.group(1)))
         value = get_frame().EvaluateExpression("$" + x.group(1))
         if value.IsValid() == False:                
             return 0
@@ -5322,6 +5325,7 @@ def get_indirect_flow_target(source_address):
             return int(x.group(1), 16)
 
 def get_ret_address(source_address):
+
     err = lldb.SBError()
     target = get_target()
     stack_addr = get_current_sp()
@@ -5334,6 +5338,7 @@ def get_ret_address(source_address):
     return ret_addr
 
 def is_sending_objc_msg():
+
     err = lldb.SBError()
     target = get_target()
 
@@ -5348,6 +5353,7 @@ def is_sending_objc_msg():
 
 # XXX: x64 only
 def display_objc():
+    
     pc_addr = get_current_pc()
 
     err = lldb.SBError()
@@ -5360,7 +5366,9 @@ def display_objc():
 #    command = '(void*)object_getClass({})'.format(get_instance_object())
 #    value = get_frame().EvaluateExpression(command, options).GetObjectDescription()
     classname_command = '(const char *)object_getClassName((id){})'.format(get_instance_object())
+    
     classname_value = get_frame().EvaluateExpression(classname_command)
+    
     if classname_value.IsValid() == False:
         return
     
@@ -5369,6 +5377,7 @@ def display_objc():
     selector_addr = get_gp_register("rsi")
 
     membuff = get_process().ReadMemory(selector_addr, 0x100, err)
+    
     strings = membuff.split('\00')
     
     if len(strings) != 0:
@@ -5382,20 +5391,28 @@ def display_objc():
         output(strings[0])
 
 def display_indirect_flow():
+
     target = get_target()
     pc_addr = get_current_pc()
     mnemonic = get_mnemonic(pc_addr)
 
     if ("ret" in mnemonic) == True:
         indirect_addr = get_ret_address(pc_addr)
-        output("0x%x -> %s" % (indirect_addr, lldb.SBAddress(indirect_addr, target).GetSymbol().name))
+        output("\033[0;31m0x%x\033[0m -> %s" % (indirect_addr, lldb.SBAddress(indirect_addr, target).GetSymbol().name))
         output("\n")
         return
     
     if "call" == mnemonic or "callq" == mnemonic or ("jmp" in mnemonic) == True:
         # we need to identify the indirect target address
         indirect_addr = get_indirect_flow_target(pc_addr)
-        output("0x%x -> %s" % (indirect_addr, lldb.SBAddress(indirect_addr, target).GetSymbol().name))
+        sym_name = lldb.SBAddress(indirect_addr, target).GetSymbol().name
+        if sym_name:
+            output("\033[0;31m0x%x\033[0m -> %s" % (indirect_addr,sym_name))
+        else:
+            #if we can not identify the symbol name, we have to manually disassemble the target address
+            ins_list = target.ReadInstructions(lldb.SBAddress(indirect_addr, target), 1, 'intel')
+            ins = str(ins_list).split()[1] 
+            output("\033[0;31m0x%x\033[0m -> %s" % (indirect_addr,ins))
 
         if is_sending_objc_msg() == True:
             output("\n")
