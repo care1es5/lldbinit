@@ -102,6 +102,7 @@ except:
 # User configurable options
 #
 NEWLINE = "\n"
+CONFIG_ENABLE_ASLR = 1
 CONFIG_ENABLE_COLOR = 1
 CONFIG_DISPLAY_DISASSEMBLY_BYTES = 1
 CONFIG_DISASSEMBLY_LINE_COUNT = 8
@@ -254,6 +255,7 @@ def __lldb_init_module(debugger, internal_dict):
     #lldb.debugger.GetCommandInterpreter().HandleCommand("settings set prompt \"\033[01;31m(lldb) \033[0m\"", res);
     lldb.debugger.GetCommandInterpreter().HandleCommand("settings set stop-disassembly-count 0", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("settings set target.max-memory-read-size 8192" , res)
+    lldb.debugger.GetCommandInterpreter().HandleCommand("settings set target.disable-aslr false",res)
 
     if CONFIG_USE_CUSTOM_DISASSEMBLY_FORMAT == 1:
         lldb.debugger.GetCommandInterpreter().HandleCommand("settings set disassembly-format " + CUSTOM_DISASSEMBLY_FORMAT, res)
@@ -483,6 +485,7 @@ Available settings:
  """
 
     global CONFIG_ENABLE_COLOR
+    global CONFIG_ENABLE_ASLR
     global CONFIG_DISPLAY_STACK_WINDOW
     global CONFIG_DISPLAY_FLOW_WINDOW
     global CONFIG_DISPLAY_DATA_WINDOW
@@ -500,7 +503,8 @@ Available settings:
     elif cmd[0] == "solib":
         debugger.HandleCommand("settings set target.process.stop-on-sharedlibrary-events true")
         print "[+] Enabled stop on library events trick."
-    elif cmd[0] == "aslr:":
+    elif cmd[0] == "aslr":
+        CONFIG_ENABLE_ASLR=1
         debugger.HandleCommand("settings set target.disable-aslr false")
         print "[+] Enabled ASLR."
     elif cmd[0] == "stackwin":
@@ -537,6 +541,7 @@ Available settings:
  """
 
     global CONFIG_ENABLE_COLOR
+    global CONFIG_ENABLE_ASLR
     global CONFIG_DISPLAY_STACK_WINDOW
     global CONFIG_DISPLAY_FLOW_WINDOW
     global CONFIG_DISPLAY_DATA_WINDOW
@@ -555,6 +560,7 @@ Available settings:
         debugger.HandleCommand("settings set target.process.stop-on-sharedlibrary-events false")
         print "[+] Disabled stop on library events trick."
     elif cmd[0] == "aslr":
+        CONFIG_ENABLE_ASLR=0
         debugger.HandleCommand("settings set target.disable-aslr true")
         print "[+] Disabled ASLR."
     elif cmd[0] == "stackwin":
@@ -5221,8 +5227,9 @@ def display_stack():
 
 def display_data():
     '''Hex dump current data window pointer'''
+    
     data_addr = DATA_WINDOW_ADDRESS
-    print data_addr
+
     if data_addr == 0:
         return
     err = lldb.SBError()
@@ -5259,10 +5266,14 @@ def get_rip_relative_addr(source_address):
 
 # XXX: instead of reading memory we can dereference right away in the evaluation
 def get_indirect_flow_target(source_address):
+   
+    global CONFIG_ENABLE_ASLR
+    
     err = lldb.SBError()
     target = get_target()
 
     operand = get_operands(source_address)
+
     #output("Operand: {}\n".format(operand))
     # calls into a deferenced memory address
     if "qword" in operand:
@@ -5305,6 +5316,7 @@ def get_indirect_flow_target(source_address):
         if x == None:
             return 0
         value = get_frame().EvaluateExpression("$" + x.group(1))
+        print value
         if value.IsValid() == False:                
             return 0
         return int(value.GetValue(), 10)
@@ -5316,7 +5328,7 @@ def get_indirect_flow_target(source_address):
         # so we need to manually compute the RIP address
         main_module = target.GetModuleAtIndex(0)
         current_module = lldb.SBAddress(source_address, target).module
-        if current_module != main_module:
+        if current_module != main_module or CONFIG_ENABLE_ASLR:
             #output("address outside main module\n")
             return get_rip_relative_addr(source_address)
         x = re.search('(0x[0-9a-z]+)', operand)
@@ -5405,13 +5417,17 @@ def display_indirect_flow():
     if "call" == mnemonic or "callq" == mnemonic or ("jmp" in mnemonic) == True:
         # we need to identify the indirect target address
         indirect_addr = get_indirect_flow_target(pc_addr)
+        
         sym_name = lldb.SBAddress(indirect_addr, target).GetSymbol().name
+
         if sym_name:
             output("\033[0;31m0x%x\033[0m -> %s" % (indirect_addr,sym_name))
         else:
             #if we can not identify the symbol name, we have to manually disassemble the target address
+            p = get_process()
             ins_list = target.ReadInstructions(lldb.SBAddress(indirect_addr, target), 1, 'intel')
             ins = str(ins_list).split()[1] 
+            
             output("\033[0;31m0x%x\033[0m -> %s" % (indirect_addr,ins))
 
         if is_sending_objc_msg() == True:
