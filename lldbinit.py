@@ -112,7 +112,7 @@ CONFIG_DISPLAY_FLOW_WINDOW = 1
 CONFIG_ENABLE_REGISTER_SHORTCUTS = 1
 CONFIG_DISPLAY_DATA_WINDOW = 0
 #must have
-CONFIG_VMMAP_ENABLE = 0
+CONFIG_ENABLE_VMMAP = 0
 
 # removes the offsets and modifies the module name position
 # reference: https://lldb.llvm.org/formats.html
@@ -242,6 +242,7 @@ def __lldb_init_module(debugger, internal_dict):
     .lldbinit 2 times, thus this dirty hack is here to prevent doulbe loading...
     if somebody knows better way, would be great to know :)
     ''' 
+    
     var = lldb.debugger.GetInternalVariableValue("stop-disassembly-count", lldb.debugger.GetInstanceName())
     if var.IsValid():
         var = var.GetStringAtIndex(0)
@@ -249,6 +250,10 @@ def __lldb_init_module(debugger, internal_dict):
             return
     res = lldb.SBCommandReturnObject()
     
+    #signal
+    
+    lldb.debugger.GetCommandInterpreter().HandleCommand("process handle SIGSEGV --notify true --pass true --stop true", res)
+
     # settings
     lldb.debugger.GetCommandInterpreter().HandleCommand("settings set target.x86-disassembly-flavor intel", res)
     lldb.debugger.GetCommandInterpreter().HandleCommand("settings set prompt \"(lldb) \"", res)
@@ -484,6 +489,7 @@ Available settings:
  flow: call targets and objective-c class/methods.
  """
 
+    global CONFIG_ENABLE_VMMAP
     global CONFIG_ENABLE_COLOR
     global CONFIG_ENABLE_ASLR
     global CONFIG_DISPLAY_STACK_WINDOW
@@ -504,7 +510,7 @@ Available settings:
         debugger.HandleCommand("settings set target.process.stop-on-sharedlibrary-events true")
         print "[+] Enabled stop on library events trick."
     elif cmd[0] == "aslr":
-        CONFIG_ENABLE_ASLR=1
+        CONFIG_ENABLE_ASLR = 1
         debugger.HandleCommand("settings set target.disable-aslr false")
         print "[+] Enabled ASLR."
     elif cmd[0] == "stackwin":
@@ -540,6 +546,7 @@ Available settings:
  flow: call targets and objective-c class/methods.
  """
 
+    global CONFIG_ENABLE_VMMAP
     global CONFIG_ENABLE_COLOR
     global CONFIG_ENABLE_ASLR
     global CONFIG_DISPLAY_STACK_WINDOW
@@ -560,6 +567,7 @@ Available settings:
         debugger.HandleCommand("settings set target.process.stop-on-sharedlibrary-events false")
         print "[+] Disabled stop on library events trick."
     elif cmd[0] == "aslr":
+        CONFIG_ENABLE_VMMAP = 0
         CONFIG_ENABLE_ASLR=0
         debugger.HandleCommand("settings set target.disable-aslr true")
         print "[+] Disabled ASLR."
@@ -1950,7 +1958,6 @@ Note: expressions supported, do not use spaces between operators.
     result.PutCString("".join(GlobalListOutput))
     result.SetStatus(lldb.eReturnStatusSuccessFinishResult)
 
-
 def vmmap():
 
     global MemoryDump
@@ -1961,6 +1968,7 @@ def vmmap():
     pattern = re.compile("([^\n]*)\s*  ([0-9a-f][^-\s]*)-([^\s]*) \[.*\]\s([^/]*).*  (.*)")
     
     matches = pattern.findall(result)
+
     if matches:
         for (name, start, end, perm, mapname) in matches:
             if name.startswith("Stack"):
@@ -1970,9 +1978,11 @@ def vmmap():
 		end = int(str("0x%s" % end),0)
             except:
                 pass
+
 	    if mapname == "":
 		mapname = name.strip()
-	    MemoryDump += [(name,start, end, perm, mapname)]
+	    
+            MemoryDump += [(name,start, end, perm, mapname)]
     
     
 
@@ -2231,12 +2241,17 @@ def get_arch():
 
 #return frame for stopped thread... there should be one at least...
 def get_frame():
+    
+    global CONFIG_ENABLE_VMMAP
+
     ret = None
+    
     # SBProcess supports thread iteration -> SBThread
     for thread in get_process():
         if thread.GetStopReason() != lldb.eStopReasonNone and thread.GetStopReason() != lldb.eStopReasonInvalid:
             ret = thread.GetFrameAtIndex(0)
             break
+            
     # this will generate a false positive when we start the target the first time because there's no context yet.
     if ret == None:
         print "[-] warning: get_frame() failed. Is the target binary started?"
@@ -2989,7 +3004,8 @@ def dump_jumpx86(eflags):
 def reg64():
     
     global MemoryDump
-    global CONFIG_VMMAP_ENABLE
+    global CONFIG_ENABLE_VMMAP
+    global CONFIG_ENABLE_ASLR
 
     global old_cs
     global old_ds
@@ -3033,10 +3049,12 @@ def reg64():
     global old_rip
     global old_ripstr
     
-    if not CONFIG_VMMAP_ENABLE:
-        vmmap()
-        CONFIG_VMMAP_ENABLE = 1
+    if not CONFIG_ENABLE_VMMAP:
 
+        vmmap()
+
+        CONFIG_ENABLE_VMMAP = 1
+    
     rax = get_gp_register("rax")
     rcx = get_gp_register("rcx")
     rdx = get_gp_register("rdx")
@@ -3068,7 +3086,7 @@ def reg64():
 
     rax_flag = 0
     
-    if old_rax == rax:
+    if old_rax == rax and old_raxstr:
         rax_flag = 1
         output(old_raxstr) 
     else:
@@ -3144,7 +3162,8 @@ def reg64():
 
     rbx_flag = 0
 
-    if old_rbx == rbx:
+    if old_rbx == rbx and old_rbxstr:
+        rbx_flag = 1
         output(old_rbxstr) 
     else:
         for (s_name,start,end,perm,name) in MemoryDump:
@@ -3154,11 +3173,12 @@ def reg64():
                     ins = target.ReadInstructions(lldb.SBAddress(rbx,target),1,'intel')
                     old_rbxstr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rbx,ins)  
                     output(old_rbxstr)
-
+                    break
+                
                 elif "Stack" in s_name:
                     error = lldb.SBError()
                     ptr_list = examine_memory(rbx,s_name)
-                      
+                    stop = 0  
                     fmt = ""
                     
                     if len(ptr_list) == 1:
@@ -3166,6 +3186,7 @@ def reg64():
                     else:
                         fmt += "\033[0;34m0x%.016lX" %(rbx)
                         fmt += "\033[0m --> "
+
                         for x in range(len(ptr_list)-1):
                             if not stop:
                                 for (s_name,start,end,perm,name) in MemoryDump:
@@ -3203,7 +3224,8 @@ def reg64():
                 rbx_flag = 1
 
     if not rbx_flag:
-        output("0x%.016lX\n" % (rbx))
+        old_rbxstr =  "0x%.016lX\n" % (rbx)
+        output(old_rbxstr)
 
     old_rbx = rbx
     
@@ -3213,7 +3235,7 @@ def reg64():
 
     rcx_flag = 0
 
-    if old_rcx == rcx:
+    if old_rcx == rcx and old_rcxstr:
         rcx_flag = 1
         output(old_rcxstr) 
     else:
@@ -3224,6 +3246,7 @@ def reg64():
                     ins = target.ReadInstructions(lldb.SBAddress(rcx,target),1,'intel')
                     old_rcxstr ="\033[0;31m0x%.016lX\033[0m --> (%s)\n" % (rcx,ins)  
                     output(old_rcxstr)
+                    break
 
                 elif "Stack" in s_name:
                     error = lldb.SBError() 
@@ -3256,10 +3279,13 @@ def reg64():
 
                                         elif "Stack" in s_name:
                                             fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                                            fmt += "\033[0m --> "
+                                            if x != len(ptr_list)-1:
+                                                fmt += "\033[0m --> "
                                         else:
                                             fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                                            fmt += "\033[0m --> "
+                                            
+                                            if x != len(ptr_list)-1:
+                                                fmt += "\033[0m --> "
                         
                         cstring = ""
 
@@ -3271,10 +3297,12 @@ def reg64():
                         #fmt += "0x%.016lX" %(ptr_list[-1])
                         fmt += "\n"
 
-                    old_rcxstr = fmt                    
+                    old_rcxstr = fmt  
                     output(old_rcxstr)
+
                 else:
-                    output("0x%.016lX\n" % (rcx))
+                    old_rcxstr = "0x%.016lX\n" % (rcx)
+                    output(old_rcxstr)
                 
                 rcx_flag = 1
 
@@ -3700,7 +3728,9 @@ def reg64():
                     error = lldb.SBError() 
                     p = target.process
                     ptr_list = examine_memory(r8,s_name)
-                      
+                    
+                    stop = 0 
+                    
                     fmt = ""
                     
                     if len(ptr_list) == 1:
@@ -3710,14 +3740,33 @@ def reg64():
                         fmt += "\033[0m --> "
 
                         for x in range(len(ptr_list)-1):
-                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
-                            fmt += "\033[0m --> "
-                         
-                        cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
+                            if not stop:
+                                for (s_name,start,end,perm,name) in MemoryDump:
+                                    if ptr_list[x] >= start and ptr_list[x] <= end:
+                                        if "__TEXT" in s_name or "__DATA" in s_name:
+
+                                            ins = target.ReadInstructions(lldb.SBAddress(ptr_list[x],target),1,'intel')
+                                            fmt +="\033[0;31m%.016lX\033[0m (%s)" % (ptr_list[x],ins)
+
+                                            stop = 1
+
+                                            break
+
+                                        elif "Stack" in s_name:
+                                            fmt += "\033[0;34m0x%.016lX" %(ptr_list[x])
+                                            fmt += "\033[0m --> "
+
+                                        else:
+                                            fmt += "\033[0;34m0x%.016lX" % (ptr_list[x])
+                                            fmt += "\033[0m --> "
+
+
+                        if not stop:
+                            cstring = p.ReadCStringFromMemory(ptr_list[-2],256,error)
                         
                         if error.Success():
-                            fmt += "('"+cstring+"')"
-                        
+                                fmt += "('"+cstring+"')"
+
                         #fmt += "0x%.016lX" %(ptr_list[-1])
                         fmt += "\n"
 
@@ -3838,7 +3887,7 @@ def reg64():
                         #fmt += "0x%.016lX" %(ptr_list[-1])
                         fmt += "\n"
 
-                    old_r9str = fmt
+                    old_r10str = fmt
                     output(old_r10str)                
                 else:
                     output("0x%.016lX\n" % (r10))
@@ -3848,7 +3897,6 @@ def reg64():
     if not r10_flag:
         old_r10str = "0x%.016lX\n" % (r10)
         output(old_r10str)
-        old_r10 = r10
     
     old_r10 = r10
 
@@ -5436,11 +5484,19 @@ def display_indirect_flow():
         output("\n")
 
     return
+
+def HandleHookStopOnExit(debugger, command, result, dict):
+    '''HandleHookStopOnExit'''
+    pass
+
 #
 # The heart of lldbinit - when lldb stop this is where we land 
 #
+
 def HandleHookStopOnTarget(debugger, command, result, dict):
+    
     '''Display current code context.'''
+    
     # Don't display anything if we're inside Xcode
     if os.getenv('PATH').startswith('/Applications/Xcode.app'):
         return
@@ -5449,23 +5505,53 @@ def HandleHookStopOnTarget(debugger, command, result, dict):
     global arm_type
     global CONFIG_DISPLAY_STACK_WINDOW
     global CONFIG_DISPLAY_FLOW_WINDOW
-    global CONFIG_VMMAP_ENABLE 
+    global CONFIG_ENABLE_VMMAP 
+   
+    global MemoryDump
+    global old_raxstr
+    global old_rbxstr
+    global old_rcxstr
+    global old_rdxstr
+    global old_rdistr
+    global old_rsistr
+    global old_rbpstr
+    global old_rspstr
 
     debugger.SetAsync(True)
-
+      
+    #Before anything else check to see if process is alive
+      
     # when we start the thread is still not valid and get_frame() will always generate a warning
     # this way we avoid displaying it in this particular case
+    
     if get_process().GetNumThreads() == 1:
         thread = get_process().GetThreadAtIndex(0)
         if thread.IsValid() == False:
-            return
+            #Hack to deal with re-map MemoryDump everytime program restarts
+            MemoryDump = [] 
+            CONFIG_ENABLE_VMMAP = 0
 
+            #Reset the value to accomodate the re-mapped MemoryDump
+            old_rax_str = ""
+            old_rbx_str = ""
+            old_rcx_str = ""
+            old_rdx_str = ""
+            old_rdi_str = ""
+            old_rsi_str = ""
+            old_rbp_str = ""
+            old_rsp_str = ""
+            
+            return
+      
     frame = get_frame()
+
     if not frame: 
         return
-            
-    thread= frame.GetThread()
+    
+    thread = frame.GetThread()
+
     while True:
+
         frame = get_frame()
         thread = frame.GetThread()
         
@@ -5623,9 +5709,8 @@ def HandleHookStopOnTarget(debugger, command, result, dict):
     color_reset()
 
     color_reset()
+
     data = "".join(GlobalListOutput)
-   
-    
 
     result.PutCString(data)
     result.SetStatus(lldb.eReturnStatusSuccessFinishResult)
