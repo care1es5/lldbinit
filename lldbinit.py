@@ -5079,11 +5079,21 @@ def ropsearch(debugger, command, result,dict):
 
     Command to search for all gadgets in the target
     
-    Syntax: ropsearch <target>
+    Syntax: ropsearch <1,2,3>
    
     Note: target is not required if you already created the target
     '''
+    
+    error = lldb.SBError()
+    cmd = command.split()
+    target = get_target()
+    res = lldb.SBCommandReturnObject()
 
+    name = lldb.debugger.GetSelectedTarget().executable.fullpath
+    
+    if not name:
+        return 
+    
     options = { 
 
                 'color' : True,                 
@@ -5093,34 +5103,43 @@ def ropsearch(debugger, command, result,dict):
 		'type' : 'all',                 
 		'detailed' : False
     }
-    
-    is_target = 0 
-
-    cmd = command.split()
 
     rp = RopperService(options)
     
-    name = lldb.debugger.GetSelectedTarget().executable.fullpath
+    rp.addFile(name)
 
-    if name:
-        is_target = 1
-    
-    if len(cmd) != 0 or is_target:
-        if not name:
-            name = cmd[0]
+    if len(cmd) == 1:
+        if cmd[0] == "help":
+            print help
+            return
 
-        rp.addFile(name)
- 
-        rp.setArchitectureFor(name=name,arch='x86_64')
+        else: 
 
-        rp.loadGadgetsFor(name=name)
+            if cmd[0] == "1":    
 
-        rp.printGadgetsFor()
+                rp.setArchitectureFor(name=name,arch='x86_64')
 
+                rp.loadGadgetsFor(name=name)
+
+                rp.printGadgetsFor()
+
+            elif cmd[0] == "2":
+
+                p = subprocess.Popen(["ROPGadget","--binary",name,"--rop"])
+                output = p.communicate()
+
+            elif cmd[0] == "3":
+
+                p = subprocess.Popen(["rp++","--file",name,"--rop=16"])
+                p.communicate()
+            else:
+                return
     else:
         print help
         return 
 
+def shellcode(debugger,command, result,dict):
+    pass
 
 #XXX:For now, this is equivalent to byakugan test pattern function
 def exploit(debugger, command, result, dict):
@@ -5636,7 +5655,7 @@ def display_stack():
     if len(membuff) == 0:
         print "[-] error: not enough bytes read."
         return
-    
+
     #formats = str(stack_addr) + " --> " + str(membuff)  
     output(hexdump(stack_addr, membuff, " ", 16, 4))
 
@@ -5668,14 +5687,16 @@ def get_rip_relative_addr(source_address):
         print "[-] error: instruction size too small."
         return 0
     offset_bytes = get_process().ReadMemory(source_address+1, inst_size-1, err)
+
     if err.Success() == False:
         print "[-] error: Failed to read memory at 0x%x." % source_address
         return 0
+
     if inst_size == 2:
         data = struct.unpack("b", offset_bytes)
     elif inst_size == 5:
         data = struct.unpack("i", offset_bytes)
-    print data
+
     rip_call_addr = source_address + inst_size + data[0]
     #output("source {:x} rip call offset {:x} {:x}\n".format(source_address, data[0], rip_call_addr))
     return rip_call_addr
